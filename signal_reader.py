@@ -7,11 +7,11 @@ import pytz
 import json
 from dotenv import load_dotenv
 import os
-import pika
+import aio_pika
+from aio_pika import connect
 import ssl
 
 load_dotenv()
-ssl_context = ssl.create_default_context()
 toronto_tz = pytz.timezone("America/Toronto")
 
 # Replace these with your API credentials
@@ -22,18 +22,11 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Replace these with the rabbitmq information
 RABBITMQ_HOST=os.getenv("RABBITMQ_HOST")
-RABBITMQ_PORT=os.getenv("RABBITMQ_PORT")
+RABBITMQ_PORT=int(os.getenv("RABBITMQ_PORT"))
 RABBITMQ_USER=os.getenv("RABBITMQ_USER")
 RABBITMQ_PASSWORD=os.getenv("RABBITMQ_PASSWORD")
 SIGNAL_MQ_NAME=os.getenv("SIGNAL_MQ_NAME")
-
-mq_parameters = pika.ConnectionParameters(
-    host=RABBITMQ_HOST,
-    port=RABBITMQ_PORT,
-    ssl_options=pika.SSLOptions(context=ssl_context),
-    credentials=pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASSWORD)
-)
-mq_connection = pika.BlockingConnection(mq_parameters)
+RABBITMQ_URL= f"amqps://{RABBITMQ_USER}:{RABBITMQ_PASSWORD}@{RABBITMQ_HOST}/"
 
 # Replace with your OpenAI API key
 MODEL=os.getenv("MODEL")
@@ -71,7 +64,7 @@ async def handler(event):
             response = clean_convert(response)
             response = add_date(response)
             response_str = json.dumps(response)
-            publish_message(SIGNAL_MQ_NAME, response_str)
+            await publish_message(SIGNAL_MQ_NAME, response_str)
             response = prompt_openai("Convert this json to a well written small text as a signal that can be forwarded to a telegram channel "
                                      +" for trading use symbols that can be consumes easy, be consistent in your format :" + response_str)
             await bot_client.send_message(TARGET_USER, "" + response + "")
@@ -113,26 +106,39 @@ def clean_convert(chatgpt_string):
         print("Error decoding JSON:", e)
 
 
-def setup_rabbitmq():
+async def setup_rabbitmq():
     global mq_signal_channel
-    global mq_connection
     try:
-        mq_signal_channel = mq_connection.channel()
+        connection = await connect(
+            RABBITMQ_URL,
+            heartbeat=30,  # Send heartbeats every 30 seconds
+            timeout=60     # Timeout for establishing the connection
+        )
+        mq_signal_channel = await connection.channel()
         print("Connected to RabbitMQ!")
-        
     except Exception as e:
-        print(f"Rabbitmq Connection failed: {e}")
+        print(f"RabbitMQ connection failed: {e}")
 
-def publish_message(queue_name, message):
+async def publish_message(queue_name, message):
     global mq_signal_channel
-    mq_signal_channel.queue_declare(queue=queue_name)
-    # Publish the message
-    mq_signal_channel.basic_publish(exchange="", routing_key=queue_name, body=message)
-    print(f"Message published to queue '{queue_name}': {message}")
+    try:
+        if mq_signal_channel is None or mq_signal_channel.is_closed:
+            print("RabbitMQ channel is closed. Reconnecting...")
+            await setup_rabbitmq()
+        # Ensure the queue exists
+        await mq_signal_channel.declare_queue(queue_name)
+        # Publish the message
+        await mq_signal_channel.default_exchange.publish(
+            aio_pika.Message(body=message.encode()),
+            routing_key=queue_name,
+        )
+        print(f"Message published to queue '{queue_name}': {message}")
+    except Exception as e:
+        print(f"Failed to publish message: {e}")
 
 
 async def main():
-    setup_rabbitmq()
+    await setup_rabbitmq()
     await phone_client.start(phone=PHONE)
     await bot_client.start(bot_token=BOT_TOKEN)
     me = await phone_client.get_me()
