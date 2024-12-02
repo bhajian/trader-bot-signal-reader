@@ -1,0 +1,10 @@
+.env
+bot_session.session
+phone_session.session
+telegram-keys-api.txt
+bot_session.session-journal
+test-epoc.py
+env
+mytest.py
+ca.crt
+phone_session.session-journal

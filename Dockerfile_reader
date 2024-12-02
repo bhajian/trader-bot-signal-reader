@@ -1,0 +1,38 @@
+# Use an official Python runtime as the base image
+FROM python:3.9
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy the application code and requirements into the container
+COPY signal_reader.py /app
+COPY requirements.txt /app
+COPY bot_session.session /app
+COPY phone_session.session /app
+
+# Install dependencies from requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Set environment variables
+ENV API_ID=""
+ENV API_HASH=""
+ENV PHONE=""
+ENV BOT_TOKEN=""
+
+ENV AUTO_TRADE=""
+ENV TRIAL=""
+ENV K2_USER_NAME=""
+ENV K2_PASSWORD=""
+
+ENV MODEL=""
+ENV OPENAI_API_KEY=""
+
+ENV SOURCE_GROUP=""
+ENV TARGET_USER=""
+ENV SPECIFIC_USER=""
+
+# Ensure logs can be viewed using docker logs
+ENV PYTHONUNBUFFERED=1
+
+# Command to run the application
+CMD ["python", "signal_reader.py"]
