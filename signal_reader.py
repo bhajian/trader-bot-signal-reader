@@ -1,6 +1,4 @@
 from telethon import TelegramClient, events
-from telethon.errors.rpcerrorlist import PeerIdInvalidError
-from telethon.tl.types import PeerChannel
 from openai import OpenAI
 from datetime import datetime
 import pytz
@@ -55,18 +53,30 @@ async def handler(event):
             +" the message contains a signal for trading that includes direction and the time is given in AST (Arabia Standard Time) with (hh:mm) format in the input."
             +" AST is (GMT+3). EST is (GMT-5). IRST is (GMT+3:30). "
             +" If the message contains a signal then convert it to JSON with the following conditions and field:" 
-            +" Toronto_time: input time converted to EST (Estern Time Zone) for Toronto in (hh:mm) format, Tehran_time: input time converted to IRST (Iran Standard Time) for Tehran, "
+            +" toronto_time: input time converted to EST (Estern Time Zone) for Toronto in (hh:mm) format, Tehran_time: input time converted to IRST (Iran Standard Time) for Tehran, "
             + ", type (BTC/USDT), direction (UP or DOWN), stage which is value [1-6] given in the input, account_portion is a float value representing the percent of the account stated in the input (1% means 0.01) " 
             +", time type is a integer value given in the input. If it doesn't contain information about signal only return 'NONE'. Only return 'NONE' or json values extracted from input. " 
-            +" The Json contains these fields (Toronto_time, Tehran_time, type, direction, time_type, stage, account_portion). "
+            +" The Json contains these fields (toronto_time, tehran_time, type, direction, time_type, stage, account_portion). "
             +"Don't include extra words in your json string, it should be convertable in python to dictionary. :: " + event.message.text)
         if(response != "NONE"):
+            # await bot_client.send_message(TARGET_USER, event.message.text)
             response = clean_convert(response)
             response = add_date(response)
             response_str = json.dumps(response)
             await publish_message(SIGNAL_MQ_NAME, response_str)
-            response = prompt_openai("Convert this json to a well written small text as a signal that can be forwarded to a telegram channel "
-                                     +" for trading use symbols that can be consumes easy, be consistent in your format :" + response_str)
+            response = prompt_openai("Convert this json after :: to a well written small text as a signal that can be forwarded to a telegram channel "
+                                    + " for trading use symbols that can be consumes easy, use the following format: "
+                                    + "🔔 Trading Signal Alert 🔔 \n\n"
+                                    + "Pair: BTC/USDT \n"
+                                    + "Direction: (📉/📈) (DOWN/UP) \n"
+                                    + "Timeframe: XX min \n"
+                                    + "🔄 Stage: X \n"
+                                    + " Allocation: X% \n\n"
+                                    + "🕐 🇨🇦 Toronto Time: XX:XX \n"
+                                    + "🕒 🇮🇷 Tehran Time: XX:XX \n"
+                                    + "📅 Date: MM/DD/YYYY \n\n"
+                                    + "Stay informed and trade wisely!."
+                                    + " ::" + response_str)
             await bot_client.send_message(TARGET_USER, "" + response + "")
             print(response)
 
@@ -74,7 +84,7 @@ async def handler(event):
 def add_date(data):
     today = datetime.now(toronto_tz)
     formatted_date = today.strftime("%Y-%m-%d")
-    time = data["Toronto_time"]
+    time = data["toronto_time"]
     date_time_str = f"{formatted_date} {time}"
     localized_date_time = toronto_tz.localize(datetime.strptime(date_time_str, "%Y-%m-%d %H:%M"))
     epoch_time = int(localized_date_time.timestamp()) * 1000
@@ -119,6 +129,7 @@ async def setup_rabbitmq():
     except Exception as e:
         print(f"RabbitMQ connection failed: {e}")
 
+
 async def publish_message(queue_name, message):
     global mq_signal_channel
     try:
@@ -147,6 +158,7 @@ async def main():
     print("Bot is running...")
     await phone_client.run_until_disconnected()
     await bot_client.run_until_disconnected()
+
 
 if __name__ == '__main__':
     with phone_client:

@@ -8,3 +8,4 @@ env
 mytest.py
 ca.crt
 phone_session.session-journal
+deployement.yaml
